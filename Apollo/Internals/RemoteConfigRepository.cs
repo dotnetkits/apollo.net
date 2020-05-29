@@ -9,6 +9,7 @@ using Newtonsoft.Json.Serialization;
 using System;
 using System.Collections.Generic;
 using System.Net;
+using System.Reflection;
 using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
@@ -70,8 +71,6 @@ namespace Com.Ctrip.Framework.Apollo.Internals
                 Logger().Debug($"refresh config for namespace: {Namespace}");
 
                 await Sync(isFirst).ConfigureAwait(false);
-
-                _syncException = null;
             }
             catch (Exception ex)
             {
@@ -91,6 +90,7 @@ namespace Com.Ctrip.Framework.Apollo.Internals
             {
                 Logger().Debug("Remote Config refreshed!");
                 _configCache = current;
+                _syncException = null;
                 FireRepositoryChange(Namespace, GetConfig());
             }
         }
@@ -104,7 +104,7 @@ namespace Com.Ctrip.Framework.Apollo.Internals
             var configServices = await _serviceLocator.GetConfigServices().ConfigureAwait(false);
 
             Exception? exception = null;
-            string? url = null;
+            Uri? url = null;
 
             var notFound = false;
             for (var i = 0; i < (isFirst ? 1 : 2); i++)
@@ -163,8 +163,11 @@ namespace Com.Ctrip.Framework.Apollo.Internals
                         exception = ex;
                     }
                 }
-
-                await Task.Delay(1000).ConfigureAwait(false); //sleep 1 second
+#if NET40
+                await TaskEx.Delay(1000).ConfigureAwait(false);
+#else
+                await Task.Delay(1000).ConfigureAwait(false);
+#endif
             }
 
             if (notFound)
@@ -175,7 +178,7 @@ namespace Com.Ctrip.Framework.Apollo.Internals
             throw new ApolloConfigException(fallbackMessage, exception!);
         }
 
-        private string AssembleQueryConfigUrl(string uri,
+        private Uri AssembleQueryConfigUrl(string uri,
             string appId,
             string cluster,
             string? namespaceName,
@@ -215,7 +218,7 @@ namespace Com.Ctrip.Framework.Apollo.Internals
 
             uriBuilder.Query = QueryUtils.Build(query);
 
-            return uriBuilder.ToString();
+            return uriBuilder.Uri;
         }
 
         private static readonly JsonSerializerSettings JsonSettings = new JsonSerializerSettings
@@ -247,7 +250,7 @@ namespace Com.Ctrip.Framework.Apollo.Internals
             });
         }
 
-        bool _disposed;
+        private bool _disposed;
         protected override void Dispose(bool disposing)
         {
             if (_disposed)
@@ -256,6 +259,7 @@ namespace Com.Ctrip.Framework.Apollo.Internals
             if (disposing)
             {
                 _remoteConfigLongPollService.Dispose();
+                _timer.Dispose();
             }
 
             //释放非托管资源
@@ -264,3 +268,49 @@ namespace Com.Ctrip.Framework.Apollo.Internals
         }
     }
 }
+#if NET40
+namespace System.Runtime.ExceptionServices
+{
+    internal sealed class ExceptionDispatchInfo
+    {
+        private readonly object _source;
+        private readonly string _stackTrace;
+
+        private const BindingFlags PrivateInstance = BindingFlags.Instance | BindingFlags.NonPublic;
+        private static readonly FieldInfo RemoteStackTrace = typeof(Exception).GetField("_remoteStackTraceString", PrivateInstance);
+        private static readonly FieldInfo Source = typeof(Exception).GetField("_source", PrivateInstance);
+        private static readonly MethodInfo InternalPreserveStackTrace = typeof(Exception).GetMethod("InternalPreserveStackTrace", PrivateInstance);
+
+        private ExceptionDispatchInfo(Exception source)
+        {
+            SourceException = source;
+            _stackTrace = SourceException.StackTrace + Environment.NewLine;
+            _source = Source.GetValue(SourceException);
+        }
+
+        public Exception SourceException { get; }
+
+        public static ExceptionDispatchInfo Capture(Exception source)
+        {
+            if (source == null) throw new ArgumentNullException(nameof(source));
+
+            return new ExceptionDispatchInfo(source);
+        }
+
+        public void Throw()
+        {
+            try
+            {
+                throw SourceException;
+            }
+            catch
+            {
+                InternalPreserveStackTrace.Invoke(SourceException, new object[0]);
+                RemoteStackTrace.SetValue(SourceException, _stackTrace);
+                Source.SetValue(SourceException, _source);
+                throw;
+            }
+        }
+    }
+}
+#endif

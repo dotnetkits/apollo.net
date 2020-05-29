@@ -24,8 +24,7 @@ namespace Com.Ctrip.Framework.Apollo
             get => _appId;
             set
             {
-                if (LocalCacheDir == null)
-                    LocalCacheDir = Path.Combine(ConfigConsts.DefaultLocalCacheDir, value);
+                LocalCacheDir ??= Path.Combine(ConfigConsts.DefaultLocalCacheDir, value);
 
                 _appId = value;
             }
@@ -73,6 +72,8 @@ namespace Com.Ctrip.Framework.Apollo
             set => _metaServer = ConfigConsts.DefaultMetaServerUrl == value ? null : value;
         }
 
+        public string? Secret { get; set; }
+
         public IReadOnlyCollection<string>? ConfigServer { get; set; }
 
         /// <summary>ms. Default 5000ms</summary>
@@ -86,5 +87,7 @@ namespace Com.Ctrip.Framework.Apollo
         public IDictionary<string, string> Meta { get; set; } = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
         public Func<HttpMessageHandler>? HttpMessageHandlerFactory { get; set; }
+
+        public ICacheFileProvider CacheFileProvider { get; set; } = new LocalPlaintextCacheFileProvider();
     }
 }

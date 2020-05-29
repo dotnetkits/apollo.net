@@ -2,7 +2,6 @@
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 
-#nullable enable
 namespace Com.Ctrip.Framework.Apollo
 {
     /// <summary>
@@ -29,7 +28,7 @@ namespace Com.Ctrip.Framework.Apollo
         /// <summary>
         /// Config change event subscriber
         /// </summary>
-        event ConfigChangeEvent? ConfigChanged;
+        event ConfigChangeEvent ConfigChanged;
     }
 }
 

@@ -4,11 +4,11 @@ using Com.Ctrip.Framework.Apollo.Foundation;
 using Com.Ctrip.Framework.Apollo.Logging;
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using System.Configuration;
 using System.IO;
 using System.Net.Http;
-using System.Text;
 using System.Threading;
 
 namespace Com.Ctrip.Framework.Apollo.Util
@@ -17,6 +17,7 @@ namespace Com.Ctrip.Framework.Apollo.Util
     {
         public static NameValueCollection? AppSettings { get; set; }
         private static Func<HttpMessageHandler>? _httpMessageHandlerFactory;
+        private static ICacheFileProvider? _cacheFileProvider;
         private static readonly Func<Action<LogLevel, string, Exception?>> Logger = () => LogManager.CreateLogger(typeof(ConfigUtil));
 
         private int _refreshInterval = 5 * 60 * 1000; //5 minutes
@@ -24,7 +25,7 @@ namespace Com.Ctrip.Framework.Apollo.Util
 
         public ConfigUtil()
         {
-            if (AppSettings == null) AppSettings = ConfigurationManager.AppSettings;
+            AppSettings ??= ConfigurationManager.AppSettings;
 
             InitRefreshInterval();
             InitTimeout();
@@ -63,7 +64,7 @@ namespace Com.Ctrip.Framework.Apollo.Util
         {
             get
             {
-                var appId = GetAppConfig("AppId");
+                var appId = GetAppConfig(nameof(AppId));
                 if (string.IsNullOrWhiteSpace(appId))
                 {
                     appId = ConfigConsts.NoAppidPlaceholder;
@@ -78,12 +79,12 @@ namespace Com.Ctrip.Framework.Apollo.Util
         /// Get the data center info for the current application.
         /// </summary>
         /// <returns> the current data center, null if there is no such info. </returns>
-        public string? DataCenter => GetAppConfig("DataCenter");
+        public string? DataCenter => GetAppConfig(nameof(DataCenter));
 
         private void InitCluster()
         {
             //Load data center from app.config
-            var cluster = GetAppConfig("Cluster");
+            var cluster = GetAppConfig(nameof(Cluster));
 
             //Use data center as cluster
             if (string.IsNullOrWhiteSpace(cluster))
@@ -106,17 +107,29 @@ namespace Com.Ctrip.Framework.Apollo.Util
         /// Get the current environment.
         /// </summary>
         /// <returns> the env </returns>
-        public Env Env => Enum.TryParse(GetAppConfig("Env"), true, out Env env) ? env : Env.Dev;
+        public Env Env => Enum.TryParse(GetAppConfig(nameof(Env)), true, out Env env) ? env : Env.Dev;
 
         public string LocalIp { get; set; } = NetworkInterfaceManager.HostIp;
 
-        public string MetaServer => GetAppConfig("MetaServer") ?? MetaDomainConsts.GetDomain(Env);
+        public string MetaServer => GetAppConfig(nameof(MetaServer)) ?? MetaDomainHelper.GetDomain(Env);
 
+        public string? Secret => GetAppConfig(nameof(Secret));
+#if NET40
+        public ReadOnlyCollection<string>? ConfigServer
+        {
+            get
+            {
+                var servers = GetAppConfig("ConfigServer")?.Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries);
+
+                return servers == null ? null : new ReadOnlyCollection<string>(servers);
+            }
+        }
+#else
         public IReadOnlyCollection<string>? ConfigServer => GetAppConfig("ConfigServer")?.Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries);
-
+#endif
         private void InitTimeout()
         {
-            var timeout = GetAppConfig("Timeout");
+            var timeout = GetAppConfig(nameof(Timeout));
 
             if (string.IsNullOrWhiteSpace(timeout) || int.TryParse(timeout, out _timeout)) return;
 
@@ -127,14 +140,11 @@ namespace Com.Ctrip.Framework.Apollo.Util
 
         public int Timeout => _timeout;
 
-        private static readonly string DefaultAuthorization = "Basic " + Convert.ToBase64String(Encoding.UTF8.GetBytes("user:"));
-        public string Authorization => GetAppConfig("Authorization") ?? DefaultAuthorization;
-
         private void InitRefreshInterval()
         {
-            var refreshInterval = GetAppConfig("RefreshInterval");
+            var refreshInterval = GetAppConfig(nameof(RefreshInterval));
 
-            if (string.IsNullOrWhiteSpace(refreshInterval) || int.TryParse(GetAppConfig("RefreshInterval"), out _refreshInterval)) return;
+            if (string.IsNullOrWhiteSpace(refreshInterval) || int.TryParse(GetAppConfig(nameof(RefreshInterval)), out _refreshInterval)) return;
 
             _refreshInterval = 5 * 60 * 1000;
 
@@ -143,10 +153,14 @@ namespace Com.Ctrip.Framework.Apollo.Util
 
         public int RefreshInterval => _refreshInterval;
 
-        public string LocalCacheDir => GetAppConfig("LocalCacheDir") ?? Path.Combine(ConfigConsts.DefaultLocalCacheDir, AppId);
+        public string LocalCacheDir => GetAppConfig(nameof(LocalCacheDir)) ?? Path.Combine(ConfigConsts.DefaultLocalCacheDir, AppId);
 
         public Func<HttpMessageHandler>? HttpMessageHandlerFactory => _httpMessageHandlerFactory;
 
+        public ICacheFileProvider CacheFileProvider => _cacheFileProvider ??= new LocalPlaintextCacheFileProvider();
+
         public static void UseHttpMessageHandlerFactory(Func<HttpMessageHandler> factory) => Interlocked.CompareExchange(ref _httpMessageHandlerFactory, factory, null);
+
+        public static void UseCacheFileProvider(ICacheFileProvider cacheFileProvider) => Interlocked.CompareExchange(ref _cacheFileProvider, cacheFileProvider, null);
     }
 }

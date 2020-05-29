@@ -13,7 +13,7 @@ namespace Com.Ctrip.Framework.Apollo.Internals
     public abstract class AbstractConfig : IConfig
     {
         private static readonly Func<Action<LogLevel, string, Exception?>> Logger = () => LogManager.CreateLogger(typeof(AbstractConfig));
-        public event ConfigChangeEvent? ConfigChanged;
+        public event ConfigChangeEvent ConfigChanged = default!;
         private static readonly TaskFactory ExecutorService;
 
         static AbstractConfig() => ExecutorService = new TaskFactory(new LimitedConcurrencyLevelTaskScheduler(5));
@@ -21,8 +21,11 @@ namespace Com.Ctrip.Framework.Apollo.Internals
         public abstract bool TryGetProperty(string key, [NotNullWhen(true)] out string? value);
 
         public abstract IEnumerable<string> GetPropertyNames();
-
+#if NET40
+        protected void FireConfigChange(IDictionary<string, ConfigChange> actualChanges)
+#else
         protected void FireConfigChange(IReadOnlyDictionary<string, ConfigChange> actualChanges)
+#endif
         {
             if (ConfigChanged != null)
             {
